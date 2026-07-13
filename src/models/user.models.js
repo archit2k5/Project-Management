@@ -88,7 +88,7 @@ userSchema.methods.createRefreshToken= function(){
             email: this.email,
             username: this.username,
         },
-        process.env.REFRESH_TOKEN_SECREY,
+        process.env.REFRESH_TOKEN_SECRET,
         {expiresIn: process.env.REFRESH_TOKEN_EXPIRY}
     )
 }

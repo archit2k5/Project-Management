@@ -5,6 +5,7 @@ import { ApiResponse } from "../utils/api-response.js";
 import { asyncHandler } from "../utils/async-handler.js";
 import { emailVerificationEmailGenContent, forgotPasswordEmailGenContent, sendEmail } from "../utils/mail.js";
 import jwt from "jsonwebtoken"
+import crypto from "crypto"
 
 const generateAccessAndAccessToken = async function(userId){
 
@@ -163,12 +164,12 @@ const verifyEmail= asyncHandler(async(req, res)=>{
         throw new ApiError(400, "Email verification token is missing");
     }
 
-    let hashedToken = crypto
+    const hashedToken = crypto
         .createHash("sha256")
         .update(verificationToken)
         .digest("hex")
     
-    let user= await User.findOne({
+    const user= await User.findOne({
         emailVerificationToken: hashedToken,
         emailVerificationExpiry: {$gt: Date.now()}
     });
@@ -177,7 +178,7 @@ const verifyEmail= asyncHandler(async(req, res)=>{
         throw new ApiError(400, "Token is missing or invalid")
     }
 
-    user.verificationToken=undefined;
+    user.emailVerificationToken=undefined;
     user.emailVerificationExpiry=undefined;
     user.isEmailVerified= true;
     await user.save({validateBeforeSave: false});
@@ -245,11 +246,11 @@ const refreshAccessToken = asyncHandler(async (req, res)=>{
     const user= await User.findById(decodedRefreshToken._id);
 
     if(!user){
-        throw new ApiError(401, "Invalid refresh token");
+        throw new ApiError(401, "Invalid refresh token: User no longer exist");
     }
 
     if(incomingRefreshToken !== user?.refreshToken){
-        throw new ApiError(401, "Refresh Token is expired");
+        throw new ApiError(401, "Refresh Token is already used or invalid");
     }
 
     const options ={
@@ -259,15 +260,16 @@ const refreshAccessToken = asyncHandler(async (req, res)=>{
 
     const { accessToken, refreshToken : newRefreshToken } = await generateAccessAndAccessToken(user._id);
 
-    user.refreshToken=incomingRefreshToken;
+    user.refreshToken=newRefreshToken;
     await user.save({validateBeforeSave: false});
 
     return res
         .status(200)
         .cookie("accessToken", accessToken, options)
+        .cookie("refreshToken", newRefreshToken, options)
         .json( new ApiResponse(
             200,
-            { accessToken, incomingRefreshToken},
+            { accessToken, refreshToken: newRefreshToken},
             "New Refresh Token generated"
         ))
 });
@@ -350,14 +352,14 @@ const changeCurrentPassword = asyncHandler(async (req, res)=>{
     const user= await User.findById(req.user?._id);
 
     const isPasswordValid = await user.isPasswordCorrect(oldPassword);
-
+    
     if(!isPasswordValid){
-        return new ApiError(400, "Invalid old Password");
+        throw new ApiError(400, "Invalid old Password");
     }
-
+    
     user.password=newPassword;
     await user.save({validateBeforeSave: false});
-
+    
     return res
         .status(200)
         .json(new ApiResponse(
